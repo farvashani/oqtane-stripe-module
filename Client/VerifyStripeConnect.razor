@@ -1,0 +1,156 @@
+@using Tres.Stripes.Services
+@using Tres.Stripes.Models
+
+@namespace Tres.Stripes.Modules
+@inherits ModuleBase
+@inject NavigationManager NavigationManager
+@inject HttpClient http
+@inject SiteState sitestate
+
+
+@inject Blazored.SessionStorage.ISessionStorageService sessionStorage
+
+
+
+<button class="btn btn-primary" @onclick="ConnectStripe">Setup Stripe Connect</button>
+
+
+@*<h3>Edit Profile</h3>
+    @if (currentUser == null)
+    {
+        <p><em>Loading...</em></p>
+    }
+    else
+    {
+        <AuthorizeView>
+            <Authorized>
+                <div>
+                    <h4>Stripe Connect</h4>
+                    <div>
+                        @if (currentUser.StripeConnectId == null)
+                        {
+                            <button class="btn btn-primary" @onclick="ConnectStripe">Setup Stripe Connect</button>
+                        }
+                    </div>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    }*@
+
+
+
+
+@if (_Stripes == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <ActionLink Action="Add" Security="SecurityAccessLevel.Edit" Text="Add Stripe" />
+    <br />
+    <br />
+    @if (@_Stripes.Count != 0)
+    {
+        <Pager Items="@_Stripes" Format="Grid">
+            <Header>
+                <div class="col"><strong>Stripes</strong></div>
+            </Header>
+            <Row>
+                <div class="col">
+                    <ActionLink Action="Edit" Parameters="@($"id=" + context.StripeId.ToString())" />
+                    <ActionDialog Header="Delete Stripe" Message="@("Are You Sure You Wish To Delete The " + context.Name + " Stripe?")" Action="Delete" Security="SecurityAccessLevel.Edit" Class="btn btn-danger" OnClick="@(async () => await Delete(context))" />
+                    @context.Name
+                </div>
+            </Row>
+        </Pager>
+    }
+    else
+    {
+        <p>No Stripes To Display</p>
+    }
+}
+
+<!-- The content below is for informational purposes only and can be safely removed -->
+
+@code {
+    IStripeService StripeService;
+    List<Stripe> _Stripes;
+
+
+    string StripeUrl = "http://localhost:5000/VerifyStripeConnect";
+
+    string ClientId = "ABC123";
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var expectedState = await sessionStorage.GetItemAsync<string>("stripeState");
+        var queryString = NavigationManager.ToAbsoluteUri(NavigationManager.Uri).Query;
+        var query = QueryHelpers.ParseQuery(queryString);
+
+        if (query.TryGetValue("state", out var state))
+        {
+            if (state == expectedState)
+            {
+                await sessionStorage.RemoveItemAsync("stripeState");
+
+                if (query.TryGetValue("code", out var code))
+                {
+                    //var stripeId = stripeService.GetStripeIdFromAuthCode(code);
+                    //currentUser.StripeConnectId = stripeId;
+
+                    //await apiService.EditUserAsync(currentUser);
+                    //navMan.NavigateTo("/EditProfile");
+                }
+            }
+        }
+    }
+
+
+    public string GetStripeIdFromAuthCode(string authCode)
+    {
+        var options = new OAuthTokenCreateOptions
+        {
+            GrantType = "authorization_code",
+            Code = authCode,
+        };
+
+        var service = new OAuthTokenService();
+        var response = service.Create(options);
+
+        return response.StripeUserId;
+    }
+
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            StripeService = new StripeService(http, sitestate, NavigationManager);
+            _Stripes = await StripeService.GetStripesAsync(ModuleState.ModuleId);
+        }
+        catch (Exception ex)
+        {
+            await logger.LogError(ex, "Error Loading Stripe {Error}", ex.Message);
+            AddModuleMessage("Error Loading Stripe", MessageType.Error);
+        }
+    }
+
+    private async Task Delete(Stripe Stripe)
+    {
+        try
+        {
+            await StripeService.DeleteStripeAsync(Stripe.StripeId);
+            await logger.LogInformation("Stripe Deleted {Stripe}", Stripe);
+            _Stripes = await StripeService.GetStripesAsync(ModuleState.ModuleId);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await logger.LogError(ex, "Error Deleting Stripe {Stripe} {Error}", Stripe, ex.Message);
+            AddModuleMessage("Error Deleting Stripe", MessageType.Error);
+        }
+    }
+}
